@@ -1,4 +1,7 @@
 .env
-venv/
-__pycache__/
 *.db
+__pycache__/
+venv/
+*.pyc
+.DS_Store
+alembic/versions/
