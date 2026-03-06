@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
 
-@auth_router.post("/signup")
+@auth_router.post("/signup", status_code=201)
 async def signup(user_schema: UserSchema, session: Session = Depends(getSession)):
 
     if len(user_schema.password) < 6:
@@ -22,4 +22,4 @@ async def signup(user_schema: UserSchema, session: Session = Depends(getSession)
         newUser = User(username=user_schema.username, email=user_schema.email, password=encrypted_password, admin=user_schema.admin)
         session.add(newUser)
         session.commit()
-        raise HTTPException(status_code=201, detail="Usuário criado com sucesso!")
+        return {"detail": "Usuário criado com sucesso!"}
