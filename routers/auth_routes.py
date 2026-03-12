@@ -24,7 +24,10 @@ def create_access_token(user_id: int, token_duration= timedelta(minutes=ACCESS_T
     return jwt.encode(info, SECRET_KEY, algorithm=ALGORITHM)
 
 @auth_router.post("/signup", status_code=201)
-async def signup(user_schema: UserSchema, session: Session = Depends(getSession)):
+async def signup(user_schema: UserSchema, session: Session = Depends(getSession),user: User = Depends(verify_token)):
+
+    if not user.admin:
+        raise HTTPException(status_code=403, detail="Acesso negado: apenas administradores podem criar novos usuários")
 
     if len(user_schema.password) < 6:
         raise HTTPException(status_code=400, detail="Senha muito curta, mínimo 6 caracteres")
