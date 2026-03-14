@@ -7,7 +7,9 @@ from relatorio_folha_diario_new import DB_LIST, DEFAULT_EMAIL_RECIPIENTS, OUTPUT
 
 
 class ReportServiceError(Exception):
-    pass
+    def __init__(self, message, status_code=400):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def _validate_recipients(recipients):
@@ -19,7 +21,8 @@ def _validate_recipients(recipients):
 
     if invalid_recipients:
         raise ReportServiceError(
-            "Destinatários de email inválidos: " + ", ".join(sorted(invalid_recipients))
+            "Destinatários de email inválidos: " + ", ".join(sorted(invalid_recipients)),
+            status_code=422,
         )
 
 
@@ -31,7 +34,8 @@ def _resolve_db_list(ports):
     unknown_ports = sorted({str(port) for port in ports if str(port) not in available_dbs})
     if unknown_ports:
         raise ReportServiceError(
-            "Portas de banco não configuradas para o relatório: " + ", ".join(unknown_ports)
+            "Portas de banco não configuradas para o relatório: " + ", ".join(unknown_ports),
+            status_code=422,
         )
 
     return [available_dbs[str(port)] for port in ports]
@@ -56,7 +60,12 @@ def generate_report_payload(request_data):
             recipients=recipients,
         )
     except RuntimeError as exc:
-        raise ReportServiceError(str(exc)) from exc
+        raise ReportServiceError(str(exc), status_code=503) from exc
+    except Exception as exc:
+        raise ReportServiceError(
+            "Falha inesperada ao gerar relatório.",
+            status_code=500,
+        ) from exc
 
     output_path = Path(result["output_path"])
     return {
@@ -73,10 +82,10 @@ def generate_report_payload(request_data):
 def get_report_file_path(report_id):
     safe_report_id = Path(report_id).stem
     if safe_report_id != report_id:
-        raise ReportServiceError("Identificador de relatório inválido.")
+        raise ReportServiceError("Identificador de relatório inválido.", status_code=422)
 
     report_path = Path(OUTPUT_DIR) / f"{safe_report_id}.pdf"
     if not report_path.exists():
-        raise ReportServiceError("Relatório não encontrado para download.")
+        raise ReportServiceError("Relatório não encontrado para download.", status_code=404)
 
     return report_path

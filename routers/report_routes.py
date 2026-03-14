@@ -17,7 +17,7 @@ async def generate_report_endpoint(
     try:
         return generate_report_payload(request_data)
     except ReportServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @report_router.get("/download/{report_id}")
@@ -25,6 +25,6 @@ async def download_report_endpoint(report_id: str, _: User = Depends(verify_toke
     try:
         report_path = get_report_file_path(report_id)
     except ReportServiceError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
     return FileResponse(path=report_path, media_type="application/pdf", filename=report_path.name)
