@@ -5,4 +5,3 @@ venv/
 *.pyc
 .DS_Store
 alembic/versions/
-requirements.txt
