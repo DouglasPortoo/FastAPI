@@ -88,6 +88,8 @@ SMTP_USER = _get_env("REPORT_SMTP_USER", "")
 SMTP_PASS = _get_env("REPORT_SMTP_PASS", "")
 FROM_EMAIL = _get_env("REPORT_FROM_EMAIL", SMTP_USER)
 DEFAULT_EMAIL_RECIPIENTS = _get_csv_env("REPORT_EMAIL_RECIPIENTS", [])
+DB_CONNECT_TIMEOUT_SECONDS = _get_int_env("REPORT_DB_CONNECT_TIMEOUT_SECONDS", 15)
+SMTP_TIMEOUT_SECONDS = _get_int_env("REPORT_SMTP_TIMEOUT_SECONDS", 20)
 
 
 def _replace_host_id(query, hostid):
@@ -1372,7 +1374,7 @@ def get_db_tops(db : dict):
 def run_query2_pyodbc(conn_str, query):
     rows = []
     try:
-        cn = pyodbc.connect(conn_str, autocommit=True)
+        cn = pyodbc.connect(conn_str, autocommit=True, timeout=DB_CONNECT_TIMEOUT_SECONDS)
         cur = cn.cursor()
         try:
             cur.execute(query)
@@ -1424,74 +1426,81 @@ def run_queries(db, queries, conn_str):
         "mssql+pyodbc:///?odbc_connect=" + quote_plus(conn_str)
     )
 
-    # conexão MySQL (Zabbix)
-    conn_zabbix = mysql.connector.connect(
-        host=ZABBIX_HOST,
-        user=ZABBIX_USER,
-        password=ZABBIX_PASS,
-        database=ZABBIX_DB
-    )
-    cursor_zabbix = conn_zabbix.cursor(dictionary=True)
+    conn_zabbix = None
+    cursor_zabbix = None
+    conn_mysql = None
+    cursor_mysql = None
 
-    # conexão MySQL
-    conn_mysql = mysql.connector.connect(
-        host=ZABBIX_HOST,
-        user=ZABBIX_USER,
-        password=ZABBIX_PASS,
-        database=ZABBIX_DB2
-    )
-    cursor_mysql = conn_mysql.cursor(dictionary=True)
+    try:
+        # conexão MySQL (Zabbix)
+        conn_zabbix = mysql.connector.connect(
+            host=ZABBIX_HOST,
+            user=ZABBIX_USER,
+            password=ZABBIX_PASS,
+            database=ZABBIX_DB,
+            connection_timeout=DB_CONNECT_TIMEOUT_SECONDS,
+        )
+        cursor_zabbix = conn_zabbix.cursor(dictionary=True)
 
-    # --- Status Server ---
-    cursor_zabbix.execute(_replace_host_id(QUERY_HOST_STATUS, SERVER_HOSTID))
-    host_status_data = cursor_zabbix.fetchall()
-    
-    # --- Métricas 24h (Zabbix) ---
-    cursor_zabbix.execute(_replace_host_id(QUERY_HOST_METRICS_1D, SERVER_HOSTID))
-    host_metrics_1d = cursor_zabbix.fetchall()
+        # conexão MySQL auxiliar
+        conn_mysql = mysql.connector.connect(
+            host=ZABBIX_HOST,
+            user=ZABBIX_USER,
+            password=ZABBIX_PASS,
+            database=ZABBIX_DB2,
+            connection_timeout=DB_CONNECT_TIMEOUT_SECONDS,
+        )
+        cursor_mysql = conn_mysql.cursor(dictionary=True)
 
-    # --- Alarmes 24h (Zabbix) ---
-    cursor_zabbix.execute(_replace_host_id(QUERY_HOST_ALARMS_24H, SERVER_HOSTID))
-    host_alarms_24h = cursor_zabbix.fetchall()
-
-    # # --- Crescimento das tabelas ---
-    # cursor_mysql.execute(QUERY_TOP_TABELAS_MB)
-    # top_tabelas_mb = cursor_mysql.fetchall()
-
-    # --- Crescimento das tabelas ---
-    cursor_zabbix.execute(_replace_host_id(QUERY_DOCKER_STATUS, SERVER_HOSTID))
-    docker_status_data = cursor_zabbix.fetchall()
-
-    # ---------- Queries MSSQL / Zabbix ----------
-    for idx, query in enumerate(queries, start=1):
-
-        # QUERY1 e QUERY7 → Zabbix (MySQL)
-        if idx in (1, 7):
-            cursor_zabbix.execute(query)
-            data.append(cursor_zabbix.fetchall())
-
-        # QUERY2 → pyodbc (SQL dinâmico pesado)
-        elif idx == 2:
-            data.append(run_query2_pyodbc(conn_str, query))
+        # --- Status Server ---
+        cursor_zabbix.execute(_replace_host_id(QUERY_HOST_STATUS, SERVER_HOSTID))
+        host_status_data = cursor_zabbix.fetchall()
         
-        # QUERIES 5, 6 e 7 → Executada no banco banco MySQL
-        elif idx in (5, 6, 8):
-            cursor_mysql.execute(query)
-            data.append(cursor_mysql.fetchall())
-            # cursor_mysql.execute(query)
-            # rows = cursor_mysql.fetchall()
-            # columns = [col[0] for col in cursor_mysql.description]
-            # data.append([dict(zip(columns, row)) for row in rows])
+        # --- Métricas 24h (Zabbix) ---
+        cursor_zabbix.execute(_replace_host_id(QUERY_HOST_METRICS_1D, SERVER_HOSTID))
+        host_metrics_1d = cursor_zabbix.fetchall()
 
-        # Demais → SQL Server via SQLAlchemy
-        else:
-            with engine.connect() as conn:
-                result = conn.execute(text(query))
-                data.append([dict(row) for row in result.mappings()])
+        # --- Alarmes 24h (Zabbix) ---
+        cursor_zabbix.execute(_replace_host_id(QUERY_HOST_ALARMS_24H, SERVER_HOSTID))
+        host_alarms_24h = cursor_zabbix.fetchall()
 
-    cursor_zabbix.close()
-    conn_zabbix.close()
-    conn_mysql.close()
+        # --- Crescimento das tabelas ---
+        cursor_zabbix.execute(_replace_host_id(QUERY_DOCKER_STATUS, SERVER_HOSTID))
+        docker_status_data = cursor_zabbix.fetchall()
+
+        # ---------- Queries MSSQL / Zabbix ----------
+        for idx, query in enumerate(queries, start=1):
+
+            # QUERY1 e QUERY7 → Zabbix (MySQL)
+            if idx in (1, 7):
+                cursor_zabbix.execute(query)
+                data.append(cursor_zabbix.fetchall())
+
+            # QUERY2 → pyodbc (SQL dinâmico pesado)
+            elif idx == 2:
+                data.append(run_query2_pyodbc(conn_str, query))
+            
+            # QUERIES 5, 6 e 7 → Executada no banco auxiliar MySQL
+            elif idx in (5, 6, 8):
+                cursor_mysql.execute(query)
+                data.append(cursor_mysql.fetchall())
+
+            # Demais → SQL Server via SQLAlchemy
+            else:
+                with engine.connect() as conn:
+                    result = conn.execute(text(query))
+                    data.append([dict(row) for row in result.mappings()])
+    except Exception as exc:
+        raise RuntimeError(f"Falha durante coleta de dados externos: {exc}") from exc
+    finally:
+        if cursor_zabbix is not None:
+            cursor_zabbix.close()
+        if conn_zabbix is not None and conn_zabbix.is_connected():
+            conn_zabbix.close()
+        if cursor_mysql is not None:
+            cursor_mysql.close()
+        if conn_mysql is not None and conn_mysql.is_connected():
+            conn_mysql.close()
 
     return db['port'], data, host_status_data, docker_status_data, host_metrics_1d, host_alarms_24h
 
@@ -1575,12 +1584,15 @@ def send_email_with_pdf(pdf_path, recipients=None):
 
     context = ssl.create_default_context()
 
-    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-        server.ehlo()
-        server.starttls(context=context)
-        server.ehlo()
-        server.login(SMTP_USER, SMTP_PASS)
-        server.send_message(msg)
+    try:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=SMTP_TIMEOUT_SECONDS) as server:
+            server.ehlo()
+            server.starttls(context=context)
+            server.ehlo()
+            server.login(SMTP_USER, SMTP_PASS)
+            server.send_message(msg)
+    except Exception as exc:
+        raise RuntimeError(f"Falha ao enviar email do relatório: {exc}") from exc
 
     print("[OK] E-mail enviado com sucesso via Zoho (587 + STARTTLS)!")
 
