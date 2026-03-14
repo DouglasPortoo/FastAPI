@@ -6,3 +6,4 @@ venv/
 .DS_Store
 alembic/versions/
 requirements.txt
+generated_reports/
