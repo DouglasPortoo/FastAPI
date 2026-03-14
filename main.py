@@ -18,10 +18,8 @@ bcrypt_context = CryptContext(schemes=["bcrypt"], deprecated="auto",bcrypt__roun
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login-form")
 
 from routers.auth_routes import auth_router
-from routers.report_routes import report_router
 
 app.include_router(auth_router)
-app.include_router(report_router)
 
 #.\venv\Scripts\pip install -r requirements.txt
 #.\venv\Scripts\python.exe
