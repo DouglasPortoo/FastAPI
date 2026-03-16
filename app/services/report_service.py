@@ -1,6 +1,9 @@
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
+from uuid import uuid4
+import json
 
 from app.collectors.mssql import MssqlCollector
 from app.collectors.mysql import MysqlCollector
@@ -9,6 +12,7 @@ from app.core.config import get_settings
 from app.schemas.report import (
     ReportBootstrapResponse,
     ReportDatabaseSnapshot,
+    ReportMetadataResponse,
     ReportResult,
     ReportSourceSummary,
 )
@@ -37,6 +41,77 @@ class ReportService:
         }
         self.report_builder = ReportBuilder()
         self.email_service = EmailService()
+        self._report_index_path = Path(self.settings.report_output_dir) / "report_index.json"
+
+    def _load_report_index(self) -> dict[str, dict]:
+        if not self._report_index_path.exists():
+            return {}
+        try:
+            return json.loads(self._report_index_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            logger.warning("Não foi possível ler índice de relatórios, recriando arquivo.")
+            return {}
+
+    def _save_report_index(self, index_data: dict[str, dict]) -> None:
+        self._report_index_path.parent.mkdir(parents=True, exist_ok=True)
+        self._report_index_path.write_text(
+            json.dumps(index_data, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def _persist_report(self, report: ReportResult) -> str:
+        report_id = report.report_id or uuid4().hex
+        payload = report.model_dump(mode="json")
+        payload["report_id"] = report_id
+
+        index_data = self._load_report_index()
+        index_data[report_id] = payload
+        self._save_report_index(index_data)
+        return report_id
+
+    def get_report_metadata(self, report_id: str) -> ReportMetadataResponse | None:
+        index_data = self._load_report_index()
+        payload = index_data.get(report_id)
+        if not payload:
+            return None
+
+        report_result = ReportResult.model_validate(payload)
+        report_path = report_result.report_path or ""
+        report_exists = bool(report_path and Path(report_path).exists())
+
+        return ReportMetadataResponse(
+            report_id=report_id,
+            status=report_result.status,
+            generated_at=report_result.generated_at,
+            report_path=report_path,
+            report_exists=report_exists,
+            run_email=report_result.run_email,
+            email_attempted=report_result.email_attempted,
+            email_sent=report_result.email_sent,
+            sources=report_result.sources,
+            databases=report_result.databases,
+            problems=report_result.problems,
+        )
+
+    def send_report_email(self, report_id: str) -> bool:
+        metadata = self.get_report_metadata(report_id)
+        if not metadata or not metadata.report_exists:
+            return False
+
+        if not self.email_service.is_configured():
+            return False
+
+        email_sent = self.email_service.send_report(metadata.report_path)
+
+        index_data = self._load_report_index()
+        payload = index_data.get(report_id)
+        if payload:
+            payload["email_attempted"] = True
+            payload["email_sent"] = bool(email_sent)
+            index_data[report_id] = payload
+            self._save_report_index(index_data)
+
+        return email_sent
 
     def _collector_summaries(self) -> list[ReportSourceSummary]:
         return [
@@ -87,6 +162,7 @@ class ReportService:
         context = ReportRunContext()
         collector_summaries = self._collector_summaries()
         database_snapshots = self._collect_database_snapshots(context)
+        report_id = uuid4().hex
 
         report_path: str | None = None
         try:
@@ -117,7 +193,8 @@ class ReportService:
         if not report_path:
             status = "failed"
 
-        return ReportResult(
+        report_result = ReportResult(
+            report_id=report_id,
             status=status,
             generated_at=datetime.utcnow(),
             report_path=report_path,
@@ -128,3 +205,5 @@ class ReportService:
             databases=database_snapshots,
             problems=context.problems,
         )
+        self._persist_report(report_result)
+        return report_result
