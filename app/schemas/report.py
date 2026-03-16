@@ -1,10 +1,13 @@
-from pydantic import BaseModel
+from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
 class ReportSourceSummary(BaseModel):
     source: str
     configured: bool
-    details: dict[str, str | int | bool]
+    details: dict[str, Any]
 
 
 class ReportBootstrapResponse(BaseModel):
@@ -12,3 +15,22 @@ class ReportBootstrapResponse(BaseModel):
     output_dir: str
     collectors: list[ReportSourceSummary]
     email_enabled: bool
+
+
+class ReportDatabaseSnapshot(BaseModel):
+    database: str
+    port: str
+    collector_status: str
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class ReportResult(BaseModel):
+    status: str
+    generated_at: datetime
+    report_path: str | None = None
+    run_email: bool
+    email_attempted: bool
+    email_sent: bool
+    sources: list[ReportSourceSummary] = Field(default_factory=list)
+    databases: list[ReportDatabaseSnapshot] = Field(default_factory=list)
+    problems: list[str] = Field(default_factory=list)
