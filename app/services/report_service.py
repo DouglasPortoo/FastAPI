@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 import json
+from typing import Any
 
 from app.collectors.mssql import MssqlCollector
 from app.collectors.mysql import MysqlCollector
@@ -123,36 +124,141 @@ class ReportService:
             for name, summary in ((key, collector.describe()) for key, collector in self.collectors.items())
         ]
 
-    def _collect_database_snapshots(self, context: ReportRunContext) -> list[ReportDatabaseSnapshot]:
+    def _collect_host_runtime_data(self, context: ReportRunContext) -> dict[str, Any]:
+        empty_data: dict[str, Any] = {
+            "host_status": [],
+            "host_metrics": [],
+            "host_alarms": [],
+            "docker_status": [],
+            "docker_directories": [],
+        }
+
+        try:
+            return self.collectors["zabbix"].collect_host_data()
+        except Exception as exc:  # pragma: no cover
+            logger.exception("Falha ao coletar dados do host via Zabbix")
+            context.add_problem(f"Falha ao coletar dados do host no Zabbix: {exc}")
+            return empty_data
+
+    def _collect_database_runtime_data(
+        self,
+        context: ReportRunContext,
+    ) -> tuple[list[ReportDatabaseSnapshot], list[dict[str, Any]]]:
         snapshots: list[ReportDatabaseSnapshot] = []
+        runtime_sections: list[dict[str, Any]] = []
         if not self.settings.report_db_list:
             context.add_problem("Nenhum banco configurado em REPORT_DB_LIST.")
-            return snapshots
+            return snapshots, runtime_sections
 
         mssql_collector = self.collectors["mssql"]
+        mysql_collector = self.collectors["mysql_aux"]
+        zabbix_collector = self.collectors["zabbix"]
+
         for db in self.settings.report_db_list:
+            section_problems: list[str] = []
+            section_data: dict[str, Any] = {
+                "database": db.mysql_banco,
+                "port": db.port,
+                "database_growth": [],
+                "largest_tables": [],
+                "jobs": [],
+                "open_connections": [],
+                "cpu_queries": [],
+                "table_growth": [],
+                "problems": section_problems,
+            }
+
             try:
                 snapshot_data = mssql_collector.collect_database_snapshot(db)
+                if not snapshot_data.get("configured"):
+                    section_problems.append(
+                        f"Configuração incompleta para o banco {db.mysql_banco} (porta {db.port})."
+                    )
+                else:
+                    try:
+                        zabbix_data = zabbix_collector.collect_database_data(db)
+                        section_data["database_growth"] = zabbix_data.get("database_growth", [])
+                    except Exception as exc:  # pragma: no cover
+                        logger.exception("Falha ao coletar crescimento via Zabbix para %s", db.mysql_banco)
+                        section_problems.append(
+                            f"Falha ao coletar crescimento do banco {db.mysql_banco} no Zabbix: {exc}"
+                        )
+
+                    try:
+                        mysql_data = mysql_collector.collect_database_data(db)
+                        section_data["open_connections"] = mysql_data.get("open_connections", [])
+                        section_data["cpu_queries"] = mysql_data.get("cpu_queries", [])
+                        section_data["table_growth"] = mysql_data.get("table_growth", [])
+                    except Exception as exc:  # pragma: no cover
+                        logger.exception("Falha ao coletar dados auxiliares MySQL para %s", db.mysql_banco)
+                        section_problems.append(
+                            f"Falha ao coletar dados auxiliares do banco {db.mysql_banco}: {exc}"
+                        )
+
+                    try:
+                        mssql_data = mssql_collector.collect_database_data(db)
+                        section_data["largest_tables"] = mssql_data.get("largest_tables", [])
+                        section_data["jobs"] = mssql_data.get("jobs", [])
+                    except Exception as exc:  # pragma: no cover
+                        logger.exception("Falha ao coletar dados MSSQL para %s", db.mysql_banco)
+                        section_problems.append(
+                            f"Falha ao coletar dados MSSQL do banco {db.mysql_banco}: {exc}"
+                        )
+
+                dataset_count = sum(
+                    len(section_data[key])
+                    for key in (
+                        "database_growth",
+                        "largest_tables",
+                        "jobs",
+                        "open_connections",
+                        "cpu_queries",
+                        "table_growth",
+                    )
+                )
+                collector_status = str(snapshot_data["collector_status"])
+                if collector_status == "ready" and section_problems:
+                    collector_status = "partial" if dataset_count > 0 else "error"
+
+                details = {
+                    **snapshot_data,
+                    "database_growth_count": len(section_data["database_growth"]),
+                    "largest_tables_count": len(section_data["largest_tables"]),
+                    "jobs_count": len(section_data["jobs"]),
+                    "open_connections_count": len(section_data["open_connections"]),
+                    "cpu_queries_count": len(section_data["cpu_queries"]),
+                    "table_growth_count": len(section_data["table_growth"]),
+                }
                 snapshot = ReportDatabaseSnapshot(
                     database=snapshot_data["database"],
                     port=str(snapshot_data["port"]),
-                    collector_status=str(snapshot_data["collector_status"]),
-                    details=snapshot_data,
+                    collector_status=collector_status,
+                    details=details,
                 )
                 snapshots.append(snapshot)
-                if not snapshot_data.get("configured"):
-                    context.add_problem(
-                        f"Configuração incompleta para o banco {db.mysql_banco} (porta {db.port})."
-                    )
+                runtime_sections.append({**section_data, "collector_status": collector_status})
             except Exception as exc:  # pragma: no cover
                 logger.exception("Falha ao preparar snapshot do banco %s", db.mysql_banco)
-                context.add_problem(f"Falha ao preparar dados do banco {db.mysql_banco}: {exc}")
-        return snapshots
+                section_problems.append(f"Falha ao preparar dados do banco {db.mysql_banco}: {exc}")
+                snapshots.append(
+                    ReportDatabaseSnapshot(
+                        database=db.mysql_banco,
+                        port=str(db.port),
+                        collector_status="error",
+                        details={"host": self.settings.report_mssql_host or "not-configured", "hostid": db.hostid},
+                    )
+                )
+                runtime_sections.append({**section_data, "collector_status": "error"})
+
+            for problem in section_problems:
+                context.add_problem(problem)
+
+        return snapshots, runtime_sections
 
     def bootstrap(self) -> ReportBootstrapResponse:
         collector_summaries = self._collector_summaries()
         return ReportBootstrapResponse(
-            status="phase_2_ready",
+            status="phase_5_ready",
             output_dir=self.settings.get_report_output_dir(),
             collectors=collector_summaries,
             email_enabled=self.email_service.is_configured(),
@@ -161,7 +267,8 @@ class ReportService:
     def generate_daily_report(self, run_email: bool = True) -> ReportResult:
         context = ReportRunContext()
         collector_summaries = self._collector_summaries()
-        database_snapshots = self._collect_database_snapshots(context)
+        host_runtime_data = self._collect_host_runtime_data(context)
+        database_snapshots, database_runtime_sections = self._collect_database_runtime_data(context)
         report_id = uuid4().hex
 
         report_path: str | None = None
@@ -170,6 +277,8 @@ class ReportService:
                 sources=collector_summaries,
                 databases=database_snapshots,
                 problems=context.problems,
+                host_data=host_runtime_data,
+                database_sections=database_runtime_sections,
             )
         except Exception as exc:  # pragma: no cover
             logger.exception("Falha ao gerar relatório diário")
