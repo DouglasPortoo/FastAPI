@@ -25,6 +25,7 @@ class ReportDatabaseSnapshot(BaseModel):
 
 
 class ReportResult(BaseModel):
+    report_id: str | None = None
     status: str
     generated_at: datetime
     report_path: str | None = None
@@ -34,3 +35,31 @@ class ReportResult(BaseModel):
     sources: list[ReportSourceSummary] = Field(default_factory=list)
     databases: list[ReportDatabaseSnapshot] = Field(default_factory=list)
     problems: list[str] = Field(default_factory=list)
+
+
+class GenerateReportRequest(BaseModel):
+    run_email: bool = True
+
+
+class ReportGenerationResponse(BaseModel):
+    report: ReportResult
+
+
+class ReportMetadataResponse(BaseModel):
+    report_id: str
+    status: str
+    generated_at: datetime
+    report_path: str
+    report_exists: bool
+    run_email: bool
+    email_attempted: bool
+    email_sent: bool
+    sources: list[ReportSourceSummary] = Field(default_factory=list)
+    databases: list[ReportDatabaseSnapshot] = Field(default_factory=list)
+    problems: list[str] = Field(default_factory=list)
+
+
+class ReportEmailResponse(BaseModel):
+    report_id: str
+    email_sent: bool
+    message: str
