@@ -44,9 +44,14 @@ class Settings(BaseSettings):
         validation_alias="REPORT_DB_LIST",
     )
     report_zabbix_host: str = Field(default="", validation_alias="REPORT_ZABBIX_HOST")
+    report_zabbix_port: int = Field(default=3306, validation_alias="REPORT_ZABBIX_PORT")
     report_zabbix_user: str = Field(default="", validation_alias="REPORT_ZABBIX_USER")
     report_zabbix_pass: str = Field(default="", validation_alias="REPORT_ZABBIX_PASS")
     report_zabbix_db: str = Field(default="zabbix_db", validation_alias="REPORT_ZABBIX_DB")
+    report_aux_host: str = Field(default="", validation_alias="REPORT_AUX_HOST")
+    report_aux_port: int = Field(default=3306, validation_alias="REPORT_AUX_PORT")
+    report_aux_user: str = Field(default="", validation_alias="REPORT_AUX_USER")
+    report_aux_pass: str = Field(default="", validation_alias="REPORT_AUX_PASS")
     report_aux_db: str = Field(default="coleta_bancos", validation_alias="REPORT_AUX_DB")
     report_smtp_server: str = Field(default="", validation_alias="REPORT_SMTP_SERVER")
     report_smtp_port: int = Field(default=587, validation_alias="REPORT_SMTP_PORT")
@@ -115,6 +120,18 @@ class Settings(BaseSettings):
 
         logo_path = Path(self.report_logo_path).expanduser()
         return str(logo_path) if logo_path.exists() else ""
+
+    def get_effective_zabbix_host(self) -> str:
+        return self.report_zabbix_host
+
+    def get_effective_aux_host(self) -> str:
+        return self.report_aux_host or self.report_zabbix_host
+
+    def get_effective_aux_user(self) -> str:
+        return self.report_aux_user or self.report_zabbix_user
+
+    def get_effective_aux_pass(self) -> str:
+        return self.report_aux_pass or self.report_zabbix_pass
 
 
 @lru_cache

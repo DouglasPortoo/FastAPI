@@ -1,10 +1,13 @@
 from datetime import datetime
 from pathlib import Path
-from textwrap import wrap
 from typing import Any, Iterable
 
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from app.core.config import get_settings
 from app.schemas.report import ReportDatabaseSnapshot, ReportSourceSummary
@@ -29,87 +32,167 @@ class ReportBuilder:
         database_sections: list[dict[str, Any]] | None = None,
     ) -> str:
         output_path = self.get_output_path()
-        report = canvas.Canvas(output_path, pagesize=A4)
+        doc = SimpleDocTemplate(
+            output_path,
+            pagesize=landscape(A4),
+            leftMargin=18 * mm,
+            rightMargin=18 * mm,
+            topMargin=18 * mm,
+            bottomMargin=18 * mm,
+        )
 
-        lines: list[str] = []
-        lines.append("Relatório Diário de Banco")
-        lines.append(f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
-        lines.append("")
-        lines.append("Fontes de dados")
-        for source in sources:
-            lines.append(f"- {source.source}: {'OK' if source.configured else 'NÃO CONFIGURADO'}")
+        styles = getSampleStyleSheet()
+        style_title = ParagraphStyle("Title", parent=styles["Heading1"], fontSize=20, alignment=TA_CENTER)
+        style_h2 = ParagraphStyle("H2", parent=styles["Heading2"], fontSize=12, spaceAfter=4)
+        style_small = ParagraphStyle("Small", parent=styles["Normal"], fontSize=8, leading=10)
 
-        lines.append("")
-        lines.append("Bancos monitorados")
-        for db in databases:
-            lines.append(f"- {db.database} (porta {db.port}): {db.collector_status}")
-
-        if host_data:
-            lines.extend(self._format_section("Status do host", host_data.get("host_status", []), ["item_name", "final_value"]))
-            lines.extend(self._format_section("Métricas 24h", host_data.get("host_metrics", []), ["item", "max_value_1d"]))
-            lines.extend(self._format_section("Alarmes 24h", host_data.get("host_alarms", []), ["criticidade", "event_name", "duracao"], max_rows=10))
-            lines.extend(self._format_section("Containers Docker", host_data.get("docker_status", []), ["container", "cpu_percent", "memory_gib", "running"], max_rows=10))
-            lines.extend(self._format_section("Diretórios Docker", host_data.get("docker_directories", []), ["name", "max_hoje_gb", "max_30_dias_gb"], max_rows=10))
-
+        flow: list[Any] = []
+        self._build_cover(flow, style_title, style_h2, style_small, sources, databases, host_data or {})
         for section in database_sections or []:
-            lines.append("")
-            lines.append(f"Banco {section['database']}:{section['port']} [{section['collector_status']}]")
-            lines.extend(self._format_section("Crescimento do banco", section.get("database_growth", []), ["name", "max_hoje_mb", "max_30_dias_mb"]))
-            lines.extend(self._format_section("Maiores tabelas", section.get("largest_tables", []), ["DatabaseName", "TableName", "TotalSpaceKB"], max_rows=10))
-            lines.extend(self._format_section("Jobs", section.get("jobs", []), ["JobName", "RunDateTime", "JobStatus"], max_rows=10))
-            lines.extend(self._format_section("Conexões abertas", section.get("open_connections", []), ["banco", "login_name", "media_conexoes", "conexoes_no_pico"], max_rows=10))
-            lines.extend(self._format_section("Queries CPU", section.get("cpu_queries", []), ["banco", "query_id", "total_cpu_hhmmss", "execution_count"], max_rows=10))
-            lines.extend(self._format_section("Crescimento de tabelas", section.get("table_growth", []), ["banco", "tabela", "hoje_mb"], max_rows=10))
+            self._build_database_section(flow, style_h2, style_small, section)
+        self._build_summary(flow, style_h2, style_small, list(problems))
 
-        lines.append("")
-        lines.append("Observações")
-        problem_list = list(problems)
-        if problem_list:
-            lines.extend(f"- {problem}" for problem in problem_list)
-        else:
-            lines.append("- Nenhuma inconsistência detectada na preparação do relatório.")
-
-        self._render_lines(report, lines)
-
-        report.save()
+        doc.build(flow)
         return output_path
 
-    def _format_section(
+    def _build_cover(
         self,
-        title: str,
+        flow: list[Any],
+        style_title: ParagraphStyle,
+        style_h2: ParagraphStyle,
+        style_small: ParagraphStyle,
+        sources: Iterable[ReportSourceSummary],
+        databases: Iterable[ReportDatabaseSnapshot],
+        host_data: dict[str, Any],
+    ) -> None:
+        logo_path = self.settings.get_report_logo_path()
+        if logo_path:
+            logo = Image(logo_path)
+            logo.drawHeight = 20 * mm
+            logo.drawWidth = 55 * mm
+            flow.append(logo)
+            flow.append(Spacer(1, 6))
+
+        flow.append(Paragraph("Relatório diário Banco de Dados", style_title))
+        flow.append(Paragraph(f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", style_small))
+        flow.append(Spacer(1, 10))
+
+        flow.append(Paragraph("Fontes de dados", style_h2))
+        source_rows = [["Fonte", "Host", "Status"]]
+        for source in sources:
+            source_rows.append([
+                source.source,
+                str(source.details.get("host", "-")),
+                "OK" if source.configured else "NÃO CONFIGURADO",
+            ])
+        flow.append(self._build_table(source_rows, [55 * mm, 85 * mm, 35 * mm]))
+        flow.append(Spacer(1, 10))
+
+        flow.append(Paragraph("Status do host", style_h2))
+        flow.append(self._dict_table(host_data.get("host_status", []), ["item_name", "final_value"], [90 * mm, 120 * mm], ["Informação", "Valor"], style_small))
+        flow.append(Spacer(1, 8))
+        flow.append(Paragraph("Métricas 24h", style_h2))
+        flow.append(self._dict_table(host_data.get("host_metrics", []), ["item", "max_value_1d"], [120 * mm, 40 * mm], ["Item", "Máximo"], style_small))
+        flow.append(Spacer(1, 8))
+        flow.append(Paragraph("Status Docker", style_h2))
+        flow.append(self._dict_table(host_data.get("docker_status", []), ["container", "cpu_percent", "memory_gib", "running"], [60 * mm, 30 * mm, 35 * mm, 25 * mm], ["Container", "CPU", "Memória", "Running"], style_small, 12))
+        flow.append(Spacer(1, 8))
+        flow.append(Paragraph("Top 50 Alarmes - Últimas 24 horas", style_h2))
+        flow.append(self._dict_table(host_data.get("host_alarms", []), ["inicio_problema", "fim_problema", "duracao", "criticidade", "event_name"], [35 * mm, 35 * mm, 25 * mm, 25 * mm, 110 * mm], ["Início", "Fim", "Duração", "Criticidade", "Descrição"], style_small, 10))
+        flow.append(PageBreak())
+
+        flow.append(Paragraph("Bancos monitorados", style_h2))
+        db_rows = [["Banco", "Porta", "Status", "Growth", "Tabelas", "Jobs", "Conexões"]]
+        for db in databases:
+            db_rows.append([
+                db.database,
+                db.port,
+                db.collector_status,
+                str(db.details.get("database_growth_count", 0)),
+                str(db.details.get("largest_tables_count", 0)),
+                str(db.details.get("jobs_count", 0)),
+                str(db.details.get("open_connections_count", 0)),
+            ])
+        flow.append(self._build_table(db_rows, [55 * mm, 20 * mm, 25 * mm, 20 * mm, 20 * mm, 20 * mm, 22 * mm]))
+        flow.append(PageBreak())
+
+    def _build_database_section(
+        self,
+        flow: list[Any],
+        style_h2: ParagraphStyle,
+        style_small: ParagraphStyle,
+        section: dict[str, Any],
+    ) -> None:
+        flow.append(Paragraph(f"MSSQL - Banco {section['port']} ({section['database']})", style_h2))
+        flow.append(self._dict_table(section.get("database_growth", []), ["name", "max_hoje_mb", "max_15_dias_mb", "max_30_dias_mb", "max_60_dias_mb"], [65 * mm, 28 * mm, 28 * mm, 28 * mm, 28 * mm], ["Banco", "Hoje MB", "15 dias", "30 dias", "60 dias"], style_small, 10))
+        flow.append(Spacer(1, 8))
+        flow.append(Paragraph("Top 10 - Jobs Última execução", style_h2))
+        flow.append(self._dict_table(section.get("jobs", []), ["JobName", "RunDateTime", "DurationHHMMSS", "JobStatus"], [80 * mm, 50 * mm, 35 * mm, 35 * mm], ["Job", "Últ. Execução", "Duração", "Status"], style_small, 10))
+        flow.append(Spacer(1, 8))
+        flow.append(Paragraph("Top 10 - Conexões abertas", style_h2))
+        flow.append(self._dict_table(section.get("open_connections", []), ["banco", "login_name", "media_conexoes", "conexoes_no_pico"], [55 * mm, 60 * mm, 35 * mm, 35 * mm], ["Banco", "Login", "Média", "Pico"], style_small, 10))
+        flow.append(Spacer(1, 8))
+        flow.append(Paragraph("Top 10 - Queries com maior consumo de CPU", style_h2))
+        flow.append(self._dict_table(section.get("cpu_queries", []), ["banco", "query_id", "execution_count", "total_cpu_hhmmss", "avg_cpu_hhmmss"], [45 * mm, 20 * mm, 20 * mm, 30 * mm, 30 * mm], ["Banco", "Query", "Exec", "CPU Total", "CPU Média"], style_small, 10))
+        flow.append(Spacer(1, 8))
+        flow.append(Paragraph("Top 10 - Histórico maiores tabelas", style_h2))
+        flow.append(self._dict_table(section.get("table_growth", []), ["banco", "tabela", "hoje_mb", "dias_15_mb", "dias_30_mb", "dias_60_mb"], [40 * mm, 60 * mm, 22 * mm, 22 * mm, 22 * mm, 22 * mm], ["Banco", "Tabela", "Hoje", "15 dias", "30 dias", "60 dias"], style_small, 10))
+        flow.append(Spacer(1, 8))
+        flow.append(Paragraph("Top 10 - Maiores tabelas", style_h2))
+        flow.append(self._dict_table(section.get("largest_tables", []), ["DatabaseName", "TableName", "RowCounts", "TotalSpaceKB", "UsedSpaceKB", "UnusedSpaceKB"], [35 * mm, 65 * mm, 25 * mm, 28 * mm, 28 * mm, 28 * mm], ["Banco", "Tabela", "Linhas", "Total KB", "Uso KB", "Livre KB"], style_small, 10))
+        if section.get("problems"):
+            flow.append(Spacer(1, 8))
+            flow.append(Paragraph("Problemas desta seção", style_h2))
+            problem_rows = [["Mensagem"]] + [[item] for item in section["problems"]]
+            flow.append(self._build_table(problem_rows, [220 * mm]))
+        flow.append(PageBreak())
+
+    def _build_summary(self, flow: list[Any], style_h2: ParagraphStyle, style_small: ParagraphStyle, problems: list[str]) -> None:
+        flow.append(Paragraph("Observações finais", style_h2))
+        rows = [["Mensagem"]]
+        if problems:
+            rows.extend([[problem] for problem in problems])
+        else:
+            rows.append(["Nenhuma inconsistência foi identificada durante a execução da coleta."])
+        flow.append(self._build_table(rows, [220 * mm]))
+
+    def _dict_table(
+        self,
         rows: list[dict[str, Any]],
         keys: list[str],
-        max_rows: int = 8,
-    ) -> list[str]:
-        lines = ["", title]
-        if not rows:
-            lines.append("- Sem dados para esta seção.")
-            return lines
+        widths: list[float],
+        headers: list[str],
+        style_small: ParagraphStyle,
+        limit: int = 8,
+    ) -> Table:
+        table_rows: list[list[Any]] = [headers]
+        for row in rows[:limit]:
+            table_rows.append([
+                Paragraph(str(row.get(key, "-")), style_small) if isinstance(row.get(key), str) else str(row.get(key, "-"))
+                for key in keys
+            ])
+        if len(rows) > limit:
+            table_rows.append([f"... {len(rows) - limit} registro(s) adicionais omitidos"] + [""] * (len(headers) - 1))
+        if len(table_rows) == 1:
+            table_rows.append(["Sem dados disponíveis"] + [""] * (len(headers) - 1))
+        return self._build_table(table_rows, widths)
 
-        for row in rows[:max_rows]:
-            parts = []
-            for key in keys:
-                if key in row and row[key] not in (None, ""):
-                    parts.append(f"{key}={row[key]}")
-            lines.append("- " + " | ".join(parts) if parts else "- registro vazio")
-
-        remaining = len(rows) - max_rows
-        if remaining > 0:
-            lines.append(f"- ... {remaining} registro(s) adicionais omitidos")
-        return lines
-
-    def _render_lines(self, report: canvas.Canvas, lines: list[str]) -> None:
-        y = 800
-        report.setTitle("Relatório Diário de Banco")
-        report.setFont("Helvetica", 10)
-
-        for line in lines:
-            wrapped_lines = wrap(line, width=110) or [""]
-            for wrapped_line in wrapped_lines:
-                if y < 60:
-                    report.showPage()
-                    report.setFont("Helvetica", 10)
-                    y = 800
-                if wrapped_line:
-                    report.drawString(40, y, wrapped_line)
-                y -= 14
+    def _build_table(self, data: list[list[Any]], widths: list[float]) -> Table:
+        table = Table(data, colWidths=widths, repeatRows=1)
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f2f2f2")),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#d9d9d9")),
+                    ("BOX", (0, 0), (-1, -1), 0.75, colors.HexColor("#bfbfbf")),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                    ("TOPPADDING", (0, 0), (-1, -1), 3),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ]
+            )
+        )
+        return table

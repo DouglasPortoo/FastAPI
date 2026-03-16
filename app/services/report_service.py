@@ -6,6 +6,9 @@ from uuid import uuid4
 import json
 from typing import Any
 
+import mysql.connector
+import pyodbc
+
 from app.collectors.mssql import MssqlCollector
 from app.collectors.mysql import MysqlCollector
 from app.collectors.zabbix import ZabbixCollector
@@ -124,6 +127,42 @@ class ReportService:
             for name, summary in ((key, collector.describe()) for key, collector in self.collectors.items())
         ]
 
+    def _friendly_error_message(self, source: str, exc: Exception) -> str:
+        if isinstance(exc, mysql.connector.Error):
+            if getattr(exc, "errno", None) == 2003:
+                if source == "zabbix_host":
+                    return (
+                        "Nao foi possivel conectar ao MySQL do Zabbix. "
+                        f"Verifique REPORT_ZABBIX_HOST={self.settings.get_effective_zabbix_host()} "
+                        f"e REPORT_ZABBIX_PORT={self.settings.report_zabbix_port}."
+                    )
+                return (
+                    "Nao foi possivel conectar ao MySQL auxiliar. "
+                    f"Verifique REPORT_AUX_HOST={self.settings.get_effective_aux_host()} "
+                    f"e REPORT_AUX_PORT={self.settings.report_aux_port}."
+                )
+            return f"Falha de acesso ao MySQL em {source}."
+
+        if isinstance(exc, pyodbc.Error) or isinstance(exc, RuntimeError):
+            message = str(exc).lower()
+            if "nenhum driver odbc" in message or "im002" in message:
+                return (
+                    "Nao foi possivel acessar o SQL Server via ODBC. "
+                    "No Windows local, confirme se existe um ODBC Driver 17 ou 18 para SQL Server instalado."
+                )
+            if "timed out" in message or "sql server inexistente" in message or "08001" in message:
+                ports = ", ".join(sorted({str(db.port) for db in self.settings.report_db_list}))
+                return (
+                    "Nao foi possivel conectar ao SQL Server remoto. "
+                    f"Verifique acesso de rede/firewall para {self.settings.report_mssql_host} nas portas {ports}."
+                )
+            return (
+                "Falha na conexao MSSQL via ODBC. "
+                "Confirme driver ODBC, host e portas configuradas."
+            )
+
+        return f"Falha em {source}: {exc}"
+
     def _collect_host_runtime_data(self, context: ReportRunContext) -> dict[str, Any]:
         empty_data: dict[str, Any] = {
             "host_status": [],
@@ -137,7 +176,7 @@ class ReportService:
             return self.collectors["zabbix"].collect_host_data()
         except Exception as exc:  # pragma: no cover
             logger.exception("Falha ao coletar dados do host via Zabbix")
-            context.add_problem(f"Falha ao coletar dados do host no Zabbix: {exc}")
+            context.add_problem(self._friendly_error_message("zabbix_host", exc))
             return empty_data
 
     def _collect_database_runtime_data(
@@ -180,9 +219,7 @@ class ReportService:
                         section_data["database_growth"] = zabbix_data.get("database_growth", [])
                     except Exception as exc:  # pragma: no cover
                         logger.exception("Falha ao coletar crescimento via Zabbix para %s", db.mysql_banco)
-                        section_problems.append(
-                            f"Falha ao coletar crescimento do banco {db.mysql_banco} no Zabbix: {exc}"
-                        )
+                        section_problems.append(self._friendly_error_message("zabbix_growth", exc))
 
                     try:
                         mysql_data = mysql_collector.collect_database_data(db)
@@ -191,9 +228,7 @@ class ReportService:
                         section_data["table_growth"] = mysql_data.get("table_growth", [])
                     except Exception as exc:  # pragma: no cover
                         logger.exception("Falha ao coletar dados auxiliares MySQL para %s", db.mysql_banco)
-                        section_problems.append(
-                            f"Falha ao coletar dados auxiliares do banco {db.mysql_banco}: {exc}"
-                        )
+                        section_problems.append(self._friendly_error_message("mysql_aux", exc))
 
                     try:
                         mssql_data = mssql_collector.collect_database_data(db)
@@ -201,9 +236,7 @@ class ReportService:
                         section_data["jobs"] = mssql_data.get("jobs", [])
                     except Exception as exc:  # pragma: no cover
                         logger.exception("Falha ao coletar dados MSSQL para %s", db.mysql_banco)
-                        section_problems.append(
-                            f"Falha ao coletar dados MSSQL do banco {db.mysql_banco}: {exc}"
-                        )
+                        section_problems.append(self._friendly_error_message("mssql", exc))
 
                 dataset_count = sum(
                     len(section_data[key])

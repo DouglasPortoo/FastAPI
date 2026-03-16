@@ -92,21 +92,23 @@ class MysqlCollector:
 
     def describe(self) -> dict[str, str | int | bool]:
         return {
-            "host": self.settings.report_zabbix_host or "not-configured",
+            "host": self.settings.get_effective_aux_host() or "not-configured",
+            "port": self.settings.report_aux_port,
             "database": self.settings.report_aux_db,
             "configured": bool(
-                self.settings.report_zabbix_host
-                and self.settings.report_zabbix_user
-                and self.settings.report_zabbix_pass
+                self.settings.get_effective_aux_host()
+                and self.settings.get_effective_aux_user()
+                and self.settings.get_effective_aux_pass()
                 and self.settings.report_aux_db
             ),
         }
 
     def _connect(self):
         return mysql.connector.connect(
-            host=self.settings.report_zabbix_host,
-            user=self.settings.report_zabbix_user,
-            password=self.settings.report_zabbix_pass,
+            host=self.settings.get_effective_aux_host(),
+            port=self.settings.report_aux_port,
+            user=self.settings.get_effective_aux_user(),
+            password=self.settings.get_effective_aux_pass(),
             database=self.settings.report_aux_db,
             connection_timeout=5,
         )
