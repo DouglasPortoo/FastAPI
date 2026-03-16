@@ -318,11 +318,12 @@ class ZabbixCollector:
 
     def describe(self) -> dict[str, str | int | bool]:
         return {
-            "host": self.settings.report_zabbix_host or "not-configured",
+            "host": self.settings.get_effective_zabbix_host() or "not-configured",
+            "port": self.settings.report_zabbix_port,
             "database": self.settings.report_zabbix_db,
             "server_hostid": self.settings.report_server_hostid,
             "configured": bool(
-                self.settings.report_zabbix_host
+                self.settings.get_effective_zabbix_host()
                 and self.settings.report_zabbix_user
                 and self.settings.report_zabbix_pass
                 and self.settings.report_zabbix_db
@@ -331,7 +332,8 @@ class ZabbixCollector:
 
     def _connect(self):
         return mysql.connector.connect(
-            host=self.settings.report_zabbix_host,
+            host=self.settings.get_effective_zabbix_host(),
+            port=self.settings.report_zabbix_port,
             user=self.settings.report_zabbix_user,
             password=self.settings.report_zabbix_pass,
             database=self.settings.report_zabbix_db,
