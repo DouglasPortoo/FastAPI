@@ -65,6 +65,14 @@ class Settings(BaseSettings):
         default=False,
         validation_alias="REPORT_SCHEDULE_RUN_EMAIL",
     )
+    report_require_admin_user: bool = Field(
+        default=False,
+        validation_alias="REPORT_REQUIRE_ADMIN_USER",
+    )
+    report_rate_limit_per_minute: int = Field(
+        default=60,
+        validation_alias="REPORT_RATE_LIMIT_PER_MINUTE",
+    )
 
     @field_validator("report_db_list", mode="before")
     @classmethod
