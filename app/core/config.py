@@ -1,5 +1,7 @@
 import json
+import os
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -94,6 +96,25 @@ class Settings(BaseSettings):
                 return json.loads(cleaned)
             return [item.strip() for item in cleaned.split(",") if item.strip()]
         return value
+
+    def get_report_output_dir_path(self) -> Path:
+        configured_path = Path(self.report_output_dir).expanduser()
+        if os.name == "nt" and self.report_output_dir.startswith("/"):
+            return Path("generated_reports")
+        return configured_path
+
+    def get_report_output_dir(self) -> str:
+        return str(self.get_report_output_dir_path())
+
+    def get_report_logo_path(self) -> str:
+        if not self.report_logo_path:
+            return ""
+
+        if os.name == "nt" and self.report_logo_path.startswith("/"):
+            return ""
+
+        logo_path = Path(self.report_logo_path).expanduser()
+        return str(logo_path) if logo_path.exists() else ""
 
 
 @lru_cache
