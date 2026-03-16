@@ -8,15 +8,19 @@ from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
 from app.db.base import Base
 from app.db.session import engine
+from app.services.report_scheduler_service import ReportSchedulerService
 
 settings = get_settings()
+scheduler = ReportSchedulerService()
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     configure_logging(settings.log_level)
     Base.metadata.create_all(bind=engine)
+    scheduler.start()
     yield
+    scheduler.stop()
 
 
 def create_app() -> FastAPI:

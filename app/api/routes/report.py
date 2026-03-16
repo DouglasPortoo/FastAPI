@@ -1,15 +1,17 @@
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from fastapi.responses import FileResponse
 
 from app.schemas.report import (
     GenerateReportRequest,
+    ReportAsyncAcceptedResponse,
     ReportBootstrapResponse,
     ReportEmailResponse,
     ReportGenerationResponse,
     ReportMetadataResponse,
 )
+from app.services.report_job_service import ReportJobService
 from app.services.report_service import ReportService
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -24,6 +26,24 @@ async def bootstrap_report_module() -> ReportBootstrapResponse:
 async def generate_daily_report(payload: GenerateReportRequest) -> ReportGenerationResponse:
     report = ReportService().generate_daily_report(run_email=payload.run_email)
     return ReportGenerationResponse(report=report)
+
+
+@router.post(
+    "/daily/async",
+    response_model=ReportAsyncAcceptedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def generate_daily_report_async(
+    payload: GenerateReportRequest,
+    background_tasks: BackgroundTasks,
+) -> ReportAsyncAcceptedResponse:
+    job_service = ReportJobService()
+    job = job_service.create_job(run_email=payload.run_email)
+    background_tasks.add_task(job_service.run_job, job.job_id)
+    return ReportAsyncAcceptedResponse(
+        message="Report job accepted",
+        job=job,
+    )
 
 
 @router.get("/{report_id}", response_model=ReportMetadataResponse)
