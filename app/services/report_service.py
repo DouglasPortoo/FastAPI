@@ -41,7 +41,7 @@ class ReportService:
         }
         self.report_builder = ReportBuilder()
         self.email_service = EmailService()
-        self._report_index_path = Path(self.settings.report_output_dir) / "report_index.json"
+        self._report_index_path = self.settings.get_report_output_dir_path() / "report_index.json"
 
     def _load_report_index(self) -> dict[str, dict]:
         if not self._report_index_path.exists():
@@ -153,7 +153,7 @@ class ReportService:
         collector_summaries = self._collector_summaries()
         return ReportBootstrapResponse(
             status="phase_2_ready",
-            output_dir=self.settings.report_output_dir,
+            output_dir=self.settings.get_report_output_dir(),
             collectors=collector_summaries,
             email_enabled=self.email_service.is_configured(),
         )

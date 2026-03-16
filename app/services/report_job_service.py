@@ -17,7 +17,7 @@ class ReportJobService:
 
     def __init__(self) -> None:
         self.settings = get_settings()
-        self._job_index_path = Path(self.settings.report_output_dir) / "report_jobs.json"
+        self._job_index_path = self.settings.get_report_output_dir_path() / "report_jobs.json"
 
     def _load_jobs(self) -> dict[str, dict]:
         if not self._job_index_path.exists():

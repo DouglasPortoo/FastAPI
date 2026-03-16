@@ -15,7 +15,7 @@ class ReportBuilder:
 
     def get_output_path(self) -> str:
         filename = f"report_diario_{datetime.now().strftime('%Y%m%d')}.pdf"
-        output_dir = Path(self.settings.report_output_dir)
+        output_dir = self.settings.get_report_output_dir_path()
         output_dir.mkdir(parents=True, exist_ok=True)
         return str(output_dir / filename)
 
