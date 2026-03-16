@@ -63,3 +63,19 @@ class ReportEmailResponse(BaseModel):
     report_id: str
     email_sent: bool
     message: str
+
+
+class ReportJobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    run_email: bool
+    report_id: str | None = None
+    error: str | None = None
+
+
+class ReportAsyncAcceptedResponse(BaseModel):
+    message: str
+    job: ReportJobStatusResponse

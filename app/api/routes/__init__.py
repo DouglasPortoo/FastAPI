@@ -1,1 +1,1 @@
-from app.api.routes import auth, health, report
+from app.api.routes import auth, health, jobs, report

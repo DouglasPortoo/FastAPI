@@ -59,6 +59,12 @@ class Settings(BaseSettings):
         default=20,
         validation_alias="REPORT_SMTP_TIMEOUT_SECONDS",
     )
+    report_schedule_enabled: bool = Field(default=False, validation_alias="REPORT_SCHEDULE_ENABLED")
+    report_schedule_time: str = Field(default="07:00", validation_alias="REPORT_SCHEDULE_TIME")
+    report_schedule_run_email: bool = Field(
+        default=False,
+        validation_alias="REPORT_SCHEDULE_RUN_EMAIL",
+    )
 
     @field_validator("report_db_list", mode="before")
     @classmethod
