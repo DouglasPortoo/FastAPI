@@ -27,7 +27,10 @@ class Settings(BaseSettings):
     api_prefix: str = Field(default="/api", validation_alias="API_PREFIX")
     log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
 
-    database_url: str = Field(default="sqlite:///banco.db", validation_alias="DATABASE_URL")
+    database_url: str = Field(
+        default="postgresql+psycopg://docker:docker@localhost:5432/apisolid",
+        validation_alias="DATABASE_URL",
+    )
     secret_key: str = Field(default="change-me", validation_alias="SECRET_KEY")
     algorithm: str = Field(default="HS256", validation_alias="ALGORITHM")
     access_token_expire_minutes: int = Field(

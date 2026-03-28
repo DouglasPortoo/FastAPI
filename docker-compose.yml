@@ -1,0 +1,23 @@
+version: '4'
+
+services:
+  api-solid-pg:
+    image: bitnami/postgresql:latest
+    container_name: api-solid-pg
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRESQL_USERNAME=docker
+      - POSTGRESQL_PASSWORD=docker
+      - POSTGRESQL_DATABASE=apisolid
+    volumes:
+      - postgres_data:/bitnami/postgresql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U docker -d apisolid" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
