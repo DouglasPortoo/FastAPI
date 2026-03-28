@@ -39,7 +39,7 @@ Este projeto usa o arquivo .env na raiz.
 
 Variavel principal de banco local:
 
-    DATABASE_URL=sqlite:///banco.db
+    DATABASE_URL=postgresql+psycopg://docker:docker@localhost:5432/apisolid
 
 ## 6) Criar banco e tabelas
 
@@ -96,8 +96,8 @@ Importante: altere a senha inicial logo apos o primeiro acesso.
 
 ## Observacoes
 
-- Em outro PC, o arquivo banco.db normalmente nao existe no inicio. Ele e criado apos migration/startup.
-- Se voce quiser manter os dados antigos, copie o arquivo banco.db do computador anterior para a raiz do projeto.
+- Em outro PC, suba primeiro o PostgreSQL via Docker Compose antes de rodar migration/startup.
+- Os dados ficam persistidos no volume Docker `postgres_data`.
 - Em Windows local, caminhos Linux em REPORT_OUTPUT_DIR e REPORT_LOGO_PATH sao tratados pelo codigo para fallback local quando necessario.
 
 ## Comandos resumidos (colar e executar)

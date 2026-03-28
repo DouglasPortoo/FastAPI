@@ -57,7 +57,3 @@ def create_app() -> FastAPI:
 
 app = create_app()
 
-#.\venv\Scripts\pip install -r requirements.txt
-#.\venv\Scripts\python.exe
-
-#uvicorn main:app --reload
