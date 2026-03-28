@@ -1,0 +1,88 @@
+{
+  "b337742883af46599e1dab712cd60cb6": {
+    "report_id": "b337742883af46599e1dab712cd60cb6",
+    "status": "completed_with_warnings",
+    "generated_at": "2026-03-16T17:05:48.101087",
+    "report_path": "generated_reports\\report_diario_20260316.pdf",
+    "run_email": false,
+    "email_attempted": false,
+    "email_sent": false,
+    "sources": [
+      {
+        "source": "mssql",
+        "configured": true,
+        "details": {
+          "host": "34.39.165.28",
+          "databases": 2,
+          "configured": true
+        }
+      },
+      {
+        "source": "mysql_aux",
+        "configured": true,
+        "details": {
+          "host": "localhost",
+          "port": 3306,
+          "database": "coleta_bancos",
+          "configured": true
+        }
+      },
+      {
+        "source": "zabbix",
+        "configured": true,
+        "details": {
+          "host": "localhost",
+          "port": 3306,
+          "database": "zabbix_db",
+          "server_hostid": 10636,
+          "configured": true
+        }
+      }
+    ],
+    "databases": [
+      {
+        "database": "folhagoogle_5020",
+        "port": "5020",
+        "collector_status": "error",
+        "details": {
+          "database": "folhagoogle_5020",
+          "port": "5020",
+          "collector_status": "ready",
+          "host": "34.39.165.28",
+          "hostid": 10640,
+          "configured": true,
+          "database_growth_count": 0,
+          "largest_tables_count": 0,
+          "jobs_count": 0,
+          "open_connections_count": 0,
+          "cpu_queries_count": 0,
+          "table_growth_count": 0
+        }
+      },
+      {
+        "database": "folhagoogle",
+        "port": "5001",
+        "collector_status": "error",
+        "details": {
+          "database": "folhagoogle",
+          "port": "5001",
+          "collector_status": "ready",
+          "host": "34.39.165.28",
+          "hostid": 10643,
+          "configured": true,
+          "database_growth_count": 0,
+          "largest_tables_count": 0,
+          "jobs_count": 0,
+          "open_connections_count": 0,
+          "cpu_queries_count": 0,
+          "table_growth_count": 0
+        }
+      }
+    ],
+    "problems": [
+      "Nao foi possivel conectar ao MySQL do Zabbix. Verifique REPORT_ZABBIX_HOST=localhost e REPORT_ZABBIX_PORT=3306.",
+      "Nao foi possivel conectar ao MySQL auxiliar. Verifique REPORT_AUX_HOST=localhost e REPORT_AUX_PORT=3306.",
+      "Nao foi possivel acessar o SQL Server via ODBC. No Windows local, confirme se existe um ODBC Driver 17 ou 18 para SQL Server instalado."
+    ]
+  }
+}
