@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.venv/
+.git/
+.gitignore
+.env
+generated_reports/
+alembic/versions/__pycache__/
