@@ -1,0 +1,48 @@
+name: relatorio-folha-api
+
+services:
+  auth-server-db:
+    image: bitnami/postgresql:latest
+    container_name: auth-server-db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRESQL_USERNAME=docker
+      - POSTGRESQL_PASSWORD=docker
+      - POSTGRESQL_DATABASE=auth-server-db
+    volumes:
+      - postgres_data:/bitnami/postgresql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U docker -d auth-server-db" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api-relatorio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: api-relatorio
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://docker:docker@auth-server-db:5432/auth-server-db
+      REPORT_OUTPUT_DIR: /app/generated_reports
+      AUTO_CREATE_ADMIN: "true"
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-Administrador}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Admin@123}
+    depends_on:
+      auth-server-db:
+        condition: service_healthy
+    volumes:
+      - ./generated_reports:/app/generated_reports
+
+volumes:
+  postgres_data:

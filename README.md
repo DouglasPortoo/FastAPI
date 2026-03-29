@@ -1,109 +1,138 @@
 # Relatorio Folha API
 
-Guia rapido para rodar este projeto em outro computador Windows.
+Guia rapido para rodar o projeto do zero, com Docker (recomendado) ou localmente no Windows.
 
-## 1) Pre-requisitos
+## Rodando com Docker (recomendado)
 
-- Python 3.11+ instalado
+### 1. Clonar e entrar na pasta
+
+  git clone <URL_DO_REPOSITORIO>
+  cd python
+
+### 2. Configurar variaveis no .env (opcional, recomendado)
+
+Use o .env para definir credenciais do primeiro admin criado automaticamente no startup:
+
+  ADMIN_USERNAME=<admin_username>
+  ADMIN_EMAIL=<admin_email@example.com>
+  ADMIN_PASSWORD=<admin_password>
+  AUTO_CREATE_ADMIN=<true_or_false>
+
+Observacao: o servico `api-relatorio` no Docker Compose carrega as variaveis do arquivo `.env`.
+
+### 3. Subir a stack
+
+  docker compose up --build -d
+
+### 4. Acessar a API
+
+  http://127.0.0.1:8000/docs
+
+### 5. Ver logs
+
+  docker compose logs -f api-relatorio
+
+### 6. Parar a stack
+
+  docker compose down
+
+## Atualizar containers apos alteracoes no codigo
+
+### Rebuild padrao
+
+  docker compose up --build -d
+
+### Rebuild somente da API
+
+  docker compose up --build -d api-relatorio
+
+### Rebuild sem cache
+
+  docker compose build --no-cache api-relatorio
+  docker compose up -d api-relatorio
+
+### Validar se subiu corretamente
+
+  docker compose logs -f api-relatorio
+  curl.exe -I http://127.0.0.1:8000/docs
+
+## Rodando local (sem Docker)
+
+### 1. Pre-requisitos
+
+- Python 3.11+
 - PowerShell
-- Git (opcional, para clonar)
 
-## 2) Clonar e entrar na pasta
+### 2. Criar e ativar ambiente virtual
 
-Se ainda nao clonou:
+  python -m venv venv
+  .\venv\Scripts\Activate.ps1
 
-    git clone <URL_DO_REPOSITORIO>
-    cd python
+Se der erro de politica de execucao:
 
-Se ja baixou o zip, apenas entre na pasta do projeto.
+  Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 
-## 3) Criar e ativar ambiente virtual
+### 3. Instalar dependencias
 
-    python -m venv venv
-    .\venv\Scripts\Activate.ps1
+  pip install -r requirements.txt
 
-Se der erro de politica de execucao no PowerShell, rode uma vez:
+### 4. Configurar .env
 
-    Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+Crie um arquivo .env na raiz com, no minimo:
 
-## 4) Instalar dependencias
+  DATABASE_URL=postgresql+psycopg://<db_user>:<db_password>@localhost:5432/<db_name>
 
-    pip install -r requirements.txt
+### 5. Aplicar migrations
 
-## 5) Configurar variaveis de ambiente (.env)
+  alembic upgrade head
 
-Este projeto usa o arquivo .env na raiz.
+### 6. Subir a API
 
-- Se ja existir .env, mantenha.
-- Se nao existir, crie copiando de um .env valido do projeto.
+  uvicorn app.main:app --reload
 
-Variavel principal de banco local:
+Acesse:
 
-    DATABASE_URL=sqlite:///banco.db
+  http://127.0.0.1:8000/docs
 
-## 6) Criar banco e tabelas
+## Criar usuario admin manualmente (modo local)
 
-Opcao recomendada (migrations Alembic):
+Necessario apenas na primeira execucao, quando o banco estiver vazio.
 
-    alembic upgrade head
+Com prompt de senha:
 
-Alternativa: iniciar a API tambem cria tabelas (via SQLAlchemy create_all no startup).
+  python -m app.scripts.create_admin
 
-## 7) Subir a API
+Com parametros:
 
-    uvicorn app.main:app --reload
+  python -m app.scripts.create_admin --username "<admin_username>" --email "<admin_email@example.com>" --password "<admin_password>"
 
-API sobe em:
+Login:
 
-    http://127.0.0.1:8000
+  POST /api/auth/login
 
-## 8) Teste rapido
+Body de exemplo:
 
-Abra no navegador:
+  {
+    "email": "<admin_email@example.com>",
+    "password": "<admin_password>"
+  }
 
-    http://127.0.0.1:8000/docs
-
-## 9) Projeto novo: criar primeiro usuario admin
-
-Como a rota de cadastro exige um usuario autenticado e admin, em banco vazio voce precisa criar o primeiro admin manualmente uma unica vez.
-
-Com o venv ativado, rode:
-
-    python -m app.scripts.create_admin
-
-Padrao do script:
-
-- username: Administrador
-- email: admin@local
-- senha: solicitada no terminal
-
-Exemplo com parametros:
-
-    python -m app.scripts.create_admin --username "Administrador" --email admin@local --password "Admin@123"
-
-Depois faca login normalmente:
-
-    POST /api/auth/login
-
-Body exemplo:
-
-    {
-      "email": "admin@local",
-      "password": "Admin@123"
-    }
-
-Importante: altere a senha inicial logo apos o primeiro acesso.
+Importante: altere a senha inicial apos o primeiro acesso.
 
 ## Observacoes
 
-- Em outro PC, o arquivo banco.db normalmente nao existe no inicio. Ele e criado apos migration/startup.
-- Se voce quiser manter os dados antigos, copie o arquivo banco.db do computador anterior para a raiz do projeto.
-- Em Windows local, caminhos Linux em REPORT_OUTPUT_DIR e REPORT_LOGO_PATH sao tratados pelo codigo para fallback local quando necessario.
+- Nome do projeto no Docker Compose: relatorio-folha-api
+- Servico do banco no Docker: auth-server-db
+- Volume persistente do Postgres: postgres_data
+- A API tenta criar admin automaticamente no Docker quando AUTO_CREATE_ADMIN=true e ADMIN_PASSWORD estiver definido
+- Diretorio de relatorios no host: generated_reports/
+- Diretorio de relatorios no container: /app/generated_reports
+- Para coletores externos (Zabbix/MySQL auxiliar), nao use `localhost` no `.env` quando rodar em Docker; use IP/DNS acessivel pelo container.
 
-## Comandos resumidos (colar e executar)
+## Comandos rapidos (local)
 
-    python -m venv venv
-    .\venv\Scripts\Activate.ps1
-    pip install -r requirements.txt
-    alembic upgrade head
-    uvicorn app.main:app --reload
+  python -m venv venv
+  .\venv\Scripts\Activate.ps1
+  pip install -r requirements.txt
+  alembic upgrade head
+  uvicorn app.main:app --reload
